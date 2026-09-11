@@ -1,0 +1,74 @@
+# Keeps the authorization package honest: a claim that no longer matches the
+# repository fails here rather than surviving until an assessment.
+name: Validate package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # The package can go stale without anyone editing it, because the system it
+    # describes keeps changing.
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: HandOff
+          persist-credentials: false
+
+      # Evidence paths resolve against the implementing repository. Without it
+      # the validator still runs and warns; structural checks are unaffected.
+      - uses: actions/checkout@v5
+        continue-on-error: true
+        with:
+          repository: KappaKorn1111/evergreen
+          path: evergreen
+          persist-credentials: false
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      - name: Generate the compliance report
+        continue-on-error: true
+        run: |
+          if [ -d evergreen ]; then
+            python3 evergreen/scripts/compliance_scan.py \
+              --json-out HandOff/evidence/compliance.json || true
+          fi
+
+      - name: Confirm the rendered matrix matches its source
+        working-directory: HandOff
+        run: python3 tools/render_sctm.py --check
+
+      - name: Validate the package against the repository
+        working-directory: HandOff
+        run: |
+          args=""
+          [ -f evidence/compliance.json ] && args="--compliance evidence/compliance.json"
+          python3 tools/validate_package.py --evergreen ../evergreen $args
+
+      - name: Export GRC records
+        working-directory: HandOff
+        run: python3 tools/export_emass.py --out-dir export
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authorization-package
+          path: |
+            HandOff/export/
+            HandOff/evidence/
+          if-no-files-found: warn

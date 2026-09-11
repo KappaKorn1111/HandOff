@@ -1,0 +1,610 @@
+# Security Control Traceability Matrix (SCTM)
+#
+# The authoritative, machine-readable record of how each control is satisfied.
+# Every other document in this package is rendered from or checked against this
+# file -- edit here, not in the generated Markdown.
+#
+# A control claimed as `implemented` must cite evidence that exists in the
+# Evergreen repository and, where an automated check covers it, that check must
+# be passing. tools/validate_package.py enforces both, so this file cannot drift
+# into describing a system that no longer exists.
+#
+# status:
+#   implemented    - satisfied now, with evidence
+#   partial        - partially satisfied; MUST reference a POA&M item
+#   planned        - accepted, not yet built; MUST reference a POA&M item
+#   inherited      - satisfied by the hosting platform, not by this code
+#   not-applicable - out of scope, with a stated reason
+
+system:
+  name: Evergreen
+  identifier: EVG-001
+  description: >-
+    Mobile application and HTTP API for logging avoided household waste,
+    scanning products for lower-impact alternatives, and redeeming points for
+    rewards. Expo/React Native client, Hono API on Node.js, PostgreSQL.
+  categorization:
+    # FIPS 199 / CNSSI 1253. Rated against the data actually held: account
+    # credentials and individual behavioural records. No financial instrument,
+    # health record or government information is processed.
+    confidentiality: moderate
+    integrity: moderate
+    availability: low
+    rationale: >-
+      Confidentiality is moderate because the system stores authentication
+      secrets and a per-user behavioural history that is personal data.
+      Integrity is moderate because the points ledger is money-like: an
+      unauthorised debit or credit has direct value. Availability is low
+      because the service is discretionary and an outage causes inconvenience
+      rather than harm.
+  authorization_boundary: >-
+    The API process, its PostgreSQL database, and the container image and
+    pipeline that produce them. The mobile client is in scope for the data it
+    handles in transit. The container platform, host operating system, network
+    edge and TLS termination are inherited from the hosting provider and are
+    NOT part of this boundary.
+  repository: https://github.com/KappaKorn1111/evergreen
+
+controls:
+  # ── Access Control ────────────────────────────────────────────────────────
+  - id: AC-3
+    title: Access Enforcement
+    status: implemented
+    responsibility: system
+    implementation: >-
+      Every route holding user data requires a bearer token resolved by
+      requireAuth, which sets the principal on the request context. Handlers
+      read the authenticated user id from that context and scope all queries to
+      it, so one account cannot reach another's entries, balance or
+      redemptions.
+    evidence:
+      - path: apps/api/src/auth/middleware.ts
+        note: Resolves and validates the principal once per request.
+      - path: apps/api/src/routes/impact.ts
+        note: Every query is scoped to c.get('userId').
+      - path: apps/api/src/__tests__/impact.test.ts
+        note: "'keeps entries private between users' asserts cross-account isolation."
+    automated_checks: []
+
+  - id: AC-4
+    title: Information Flow Enforcement
+    status: implemented
+    responsibility: system
+    implementation: >-
+      Cross-origin access is an explicit allowlist of exact origins. With none
+      configured the API emits no CORS headers at all, which is the correct
+      posture for the mobile client. Production rejects both a wildcard origin
+      and any plaintext http origin at startup rather than at request time.
+    evidence:
+      - path: apps/api/src/env.ts
+        note: parseOrigins rejects '*' and non-https origins when NODE_ENV=production.
+      - path: apps/api/src/app.ts
+        note: CORS middleware is only mounted when origins are configured.
+      - path: apps/api/src/__tests__/security.test.ts
+        note: Asserts allow-listed origins are echoed and others receive no header.
+    automated_checks: [AC-03]
+
+  - id: AC-6
+    title: Least Privilege
+    status: implemented
+    responsibility: shared
+    implementation: >-
+      The container runs as the unprivileged node user with every Linux
+      capability dropped, no-new-privileges set, and a read-only root
+      filesystem. CI workflows default to contents:read and widen scope only
+      for the single job that publishes CodeQL results.
+    evidence:
+      - path: apps/api/Dockerfile
+        note: USER node in the runtime stage.
+      - path: docker-compose.yml
+        note: cap_drop ALL, no-new-privileges, read_only, tmpfs for /tmp.
+      - path: .github/workflows/security.yml
+        note: security-events:write granted only to the codeql job.
+    automated_checks: [CM-01, CM-04, SA-02]
+
+  - id: AC-7
+    title: Unsuccessful Logon Attempts
+    status: partial
+    responsibility: system
+    implementation: >-
+      Credential endpoints sit behind a dedicated rate-limit bucket keyed on
+      client address, separate from and stricter than the general API limit.
+      Each refusal is recorded to the audit trail with the pseudonymous account
+      id, so repeated attempts against one account are detectable.
+    limitation: >-
+      Counters are held in process memory, so the effective limit multiplies by
+      the replica count in a scaled deployment. There is no per-account lockout,
+      only per-address throttling, so a distributed attempt from many addresses
+      is slowed but not stopped.
+    evidence:
+      - path: apps/api/src/security/rate-limit.ts
+        note: Fixed-window limiter behind a RateLimitStore interface.
+      - path: apps/api/src/app.ts
+        note: Separate buckets for /v1/auth/* and the rest of /v1/*.
+      - path: apps/api/src/__tests__/security.test.ts
+        note: Asserts throttling, Retry-After, and that probes are never limited.
+    automated_checks: [AC-01]
+    poam: [POAM-001]
+
+  # ── Audit and Accountability ──────────────────────────────────────────────
+  - id: AU-2
+    title: Event Logging
+    status: implemented
+    responsibility: system
+    implementation: >-
+      A closed set of security-relevant event types is emitted as structured
+      records: registration, login success and failure, rejected tokens,
+      rate-limit refusals, redemptions, rejected requests and startup
+      configuration. The set is closed so detection rules can be written
+      against stable identifiers.
+    evidence:
+      - path: apps/api/src/security/audit.ts
+        note: SecurityEventType enumerates the auditable events.
+      - path: apps/api/src/routes/auth.ts
+        note: Records both outcomes of every authentication attempt.
+    automated_checks: [AU-01]
+
+  - id: AU-3
+    title: Content of Audit Records
+    status: implemented
+    responsibility: system
+    implementation: >-
+      Every record carries what happened, when, where, the source of the
+      request, the outcome and the identity involved -- the six facts AU-3
+      requires. A correlation id is generated per request, echoed to the client
+      and attached to each record, so a reported error can be traced to its
+      server-side cause without exposing any detail to the caller.
+    evidence:
+      - path: apps/api/src/security/audit.ts
+        note: SecurityEvent defines the required fields.
+      - path: apps/api/src/security/context.ts
+        note: Request id generation, validation and propagation.
+    automated_checks: [AU-01]
+
+  - id: AU-9
+    title: Protection of Audit Information
+    status: implemented
+    responsibility: shared
+    implementation: >-
+      Email addresses are hashed before they reach a log record, so repeated
+      attempts against one account remain correlatable without writing personal
+      data into logs that are shipped, retained and widely readable. Tokens,
+      passwords and password hashes are never recorded. A behaviour test
+      asserts this by scanning the emitted records for the credentials used.
+    limitation: >-
+      Retention, access control and tamper-evidence for the shipped log stream
+      are properties of the hosting platform's logging service, not of this
+      code.
+    evidence:
+      - path: apps/api/src/security/audit.ts
+        note: pseudonymize() hashes addresses with SHA-256.
+      - path: apps/api/src/__tests__/security.test.ts
+        note: "'never writes credentials or addresses into the audit trail'."
+    automated_checks: [AU-02]
+
+  # ── Assessment, Authorization and Monitoring ──────────────────────────────
+  - id: CA-7
+    title: Continuous Monitoring
+    status: implemented
+    responsibility: system
+    implementation: >-
+      Security gates run on every pull request and on a weekly schedule, so
+      advisories published against unchanged code are still found. Each gate
+      writes a machine-readable report that is retained as a build artifact and
+      forms the evidence trail for this package.
+    evidence:
+      - path: .github/workflows/security.yml
+        note: Scheduled weekly re-scan plus per-PR gates.
+      - path: docs/04-continuous-monitoring.md
+        repo: handoff
+        note: Monitoring plan, frequencies and responsibilities.
+    automated_checks: [RA-01]
+
+  # ── Configuration Management ──────────────────────────────────────────────
+  - id: CM-2
+    title: Baseline Configuration
+    status: implemented
+    responsibility: system
+    implementation: >-
+      The dependency tree is fixed by a committed lockfile and installed with
+      npm ci, which fails if the lockfile and manifests disagree. The container
+      base image is pinned by digest as well as tag, because a tag can be moved
+      to different content.
+    limitation: >-
+      The baseline is declared but has never been built: no container image has
+      been produced from this Dockerfile, so the declared baseline and the
+      real artifact have not been compared.
+    evidence:
+      - path: package-lock.json
+        note: Committed lockfile; npm ci is used in both build stages.
+      - path: apps/api/Dockerfile
+        note: NODE_IMAGE pinned by sha256 digest.
+    automated_checks: [CM-02, CM-07]
+    poam: [POAM-010]
+
+  - id: CM-6
+    title: Configuration Settings
+    status: implemented
+    responsibility: system
+    implementation: >-
+      Every setting is validated at startup and the process exits 78 rather
+      than serving traffic under an unsafe configuration. Secure values are the
+      defaults: forwarded client addresses are not believed, no CORS origins
+      are allowed, and request bodies are bounded.
+    evidence:
+      - path: apps/api/src/env.ts
+        note: loadEnv validates and fails closed.
+      - path: apps/api/src/__tests__/env.test.ts
+        note: 20 tests covering the refusal paths and secure defaults.
+    automated_checks: [CM-04, AC-02]
+
+  - id: CM-7
+    title: Least Functionality
+    status: implemented
+    responsibility: system
+    implementation: >-
+      The runtime image carries only the production dependency tree and
+      compiled output: 31MB against 195MB for the build tree, with the
+      compiler, test runner and every devDependency absent. PostgreSQL is not
+      published to the host and is reachable only on the container network.
+    evidence:
+      - path: apps/api/Dockerfile
+        note: Separate deps stage resolved with --omit=dev.
+      - path: docker-compose.yml
+        note: No host port mapping for the database.
+    automated_checks: [CM-03, CM-05]
+
+  # ── Contingency Planning ──────────────────────────────────────────────────
+  - id: CP-10
+    title: System Recovery and Reconstitution
+    status: partial
+    responsibility: shared
+    implementation: >-
+      The service is stateless and reconstituted by redeploying the pinned
+      image; schema state is rebuilt by re-applying the committed migrations,
+      which are verified against an empty database on every pipeline run.
+    limitation: >-
+      Database backup scheduling, retention and restore rehearsal belong to the
+      hosting provider and have not been exercised. An untested restore is not
+      a recovery capability.
+    evidence:
+      - path: packages/db/drizzle
+        note: Committed migrations, applied to an empty database in CI.
+      - path: docs/07-operations-runbook.md
+        repo: handoff
+        note: Recovery procedure and its open items.
+    automated_checks: []
+    poam: [POAM-004]
+
+  # ── Identification and Authentication ─────────────────────────────────────
+  - id: IA-2
+    title: Identification and Authentication (Organizational Users)
+    status: partial
+    responsibility: system
+    implementation: >-
+      Accounts authenticate with an email address and password and receive a
+      signed bearer token. Token validation pins the algorithm to HS256 and
+      checks the issuer, so a token presented under a different algorithm, or
+      minted by another service, is rejected rather than trusted.
+    limitation: >-
+      Tokens are stateless, so an issued token stays valid for its full
+      lifetime. Nothing -- a password change, an account deletion, or known
+      compromise -- can invalidate one before it expires.
+    evidence:
+      - path: apps/api/src/auth/jwt.ts
+        note: jwt.verify with an algorithm allowlist and issuer check.
+      - path: apps/api/src/__tests__/auth-hardening.test.ts
+        note: Rejects unsigned, algorithm-confused, foreign-issuer, expired and forged tokens.
+    automated_checks: [IA-04]
+    poam: [POAM-007]
+
+  - id: IA-5
+    title: Authenticator Management
+    status: implemented
+    responsibility: system
+    implementation: >-
+      No usable default signing key exists anywhere in the source tree.
+      Production requires a supplied secret of at least 32 bytes that is not
+      one of the placeholders published in the repository; outside production
+      an ephemeral key is generated per boot. Orchestration files take secrets
+      as required external inputs and refuse to start without them.
+    evidence:
+      - path: apps/api/src/env.ts
+        note: resolveJwtSecret enforces presence, length and non-placeholder.
+      - path: docker-compose.yml
+        note: "${JWT_SECRET:?} and ${POSTGRES_PASSWORD:?} are required inputs."
+      - path: .security/secret-allowlist.json
+        note: Declared exceptions to secret scanning, each with a written reason.
+    automated_checks: [IA-01, CM-06]
+
+  - id: IA-5(1)
+    title: Password-Based Authentication
+    status: partial
+    responsibility: system
+    implementation: >-
+      Passwords are stored as bcrypt hashes at work factor 12, the value OWASP
+      recommends. Length and format are enforced by a shared schema used by
+      both the API and the client. Failed authentication is answered in time
+      that does not depend on whether the account exists, so login cannot be
+      used to enumerate registered users.
+    limitation: >-
+      Credentials created before the work factor was raised keep verifying at
+      the old, weaker cost, and bcrypt silently ignores anything past the first
+      72 bytes of a password the schema allows to be 128 characters long.
+    evidence:
+      - path: apps/api/src/auth/hasher.ts
+        note: BCRYPT_ROUNDS = 12, with the range validated at construction.
+      - path: apps/api/src/auth/jwt.ts
+        note: Decoy-hash comparison on the unknown-account path.
+      - path: apps/api/src/__tests__/auth-hardening.test.ts
+        note: Counts comparisons to prove both paths do equal work.
+    automated_checks: [IA-02, IA-03]
+    poam: [POAM-008, POAM-009]
+
+  # ── Incident Response ─────────────────────────────────────────────────────
+  - id: IR-4
+    title: Incident Handling
+    status: partial
+    responsibility: shared
+    implementation: >-
+      The audit trail provides the source material for handling an incident:
+      structured events, correlation ids linking client-visible errors to
+      server-side causes, and pseudonymous account ids that allow an affected
+      account to be traced without exposing addresses.
+    limitation: >-
+      There is no alerting, no on-call rotation and no exercised response
+      procedure. Detection today depends on somebody reading the logs.
+    evidence:
+      - path: docs/05-incident-response.md
+        repo: handoff
+        note: Procedure, severity definitions, and what is not yet in place.
+    automated_checks: []
+    poam: [POAM-003]
+
+  # ── Risk Assessment ───────────────────────────────────────────────────────
+  - id: RA-5
+    title: Vulnerability Monitoring and Scanning
+    status: implemented
+    responsibility: system
+    implementation: >-
+      Three layers run on every pull request and weekly: the dependency
+      closure that actually ships is audited and gates the build at high
+      severity; the built image is scanned for vulnerable operating-system and
+      language packages; and the Dockerfile and compose file are scanned for
+      misconfiguration. Closure resolution is exact, so advisories in the
+      mobile toolchain are reported without blocking a service that does not
+      contain that code.
+    limitation: >-
+      Scanning is in place, but the mobile toolchain currently carries open
+      advisories that cannot be cleared without a major framework upgrade.
+    evidence:
+      - path: scripts/dependency_audit.py
+        note: Resolves the production closure from the lockfile.
+      - path: .github/workflows/security.yml
+        note: Trivy image and config scanning, both failing the build.
+    automated_checks: [RA-01]
+    poam: [POAM-006]
+
+  # ── System and Services Acquisition ───────────────────────────────────────
+  - id: SA-11
+    title: Developer Testing and Evaluation
+    status: implemented
+    responsibility: system
+    implementation: >-
+      95 automated tests, of which 47 cover security behaviour specifically:
+      configuration refusal paths, response headers, cross-origin policy, rate
+      limiting, body limits, audit content, and token validation. Database
+      behaviour is exercised against a real PostgreSQL instance in CI rather
+      than only against in-memory doubles.
+    evidence:
+      - path: apps/api/src/__tests__/security.test.ts
+        note: 23 tests covering request-handling controls.
+      - path: apps/api/src/__tests__/postgres.integration.test.ts
+        note: Transaction and constraint behaviour against a real database.
+    automated_checks: [SA-01]
+
+  - id: SA-15
+    title: Development Process, Standards and Tools
+    status: partial
+    responsibility: system
+    implementation: >-
+      Security gates are part of the pipeline rather than a separate review
+      step, and the same gates run locally through `npm run security`.
+      Workflows declare least-privilege permissions and do not persist
+      checkout credentials.
+    limitation: >-
+      Action references still resolve by mutable tag. Anyone able to move a
+      tag changes what runs in the pipeline, with access to the workflow token.
+    evidence:
+      - path: .github/workflows/ci.yml
+        note: Least-privilege permissions, persist-credentials false.
+      - path: scripts/pin_actions.py
+        note: Rewrites tag references to commit SHAs; --check runs offline.
+    automated_checks: [SA-02, SA-03]
+    poam: [POAM-002]
+
+  # ── System and Communications Protection ──────────────────────────────────
+  - id: SC-5
+    title: Denial-of-Service Protection
+    status: partial
+    responsibility: shared
+    implementation: >-
+      Request bodies are bounded, general and credential traffic are rate
+      limited in separate buckets, and the container has memory and process
+      limits so a runaway loop cannot exhaust the host. Liveness probes are
+      deliberately exempt from throttling.
+    limitation: >-
+      Per-process counters do not hold across replicas, and volumetric
+      protection at the network edge is the provider's.
+    evidence:
+      - path: apps/api/src/app.ts
+        note: bodyLimit and two rate-limit buckets.
+      - path: docker-compose.yml
+        note: memory and pids limits.
+    automated_checks: [SC-02, AC-01]
+    poam: [POAM-001]
+
+  - id: SC-8
+    title: Transmission Confidentiality and Integrity
+    status: inherited
+    responsibility: provider
+    implementation: >-
+      TLS termination is performed by the hosting platform. The application
+      asserts HSTS in production so a browser will not downgrade to plaintext,
+      and refuses to accept a plaintext http CORS origin in production.
+    limitation: >-
+      Cipher suites, certificate issuance and renewal are the provider's and
+      must be confirmed against the provider's own attestation.
+    evidence:
+      - path: apps/api/src/security/headers.ts
+        note: HSTS emitted only when NODE_ENV=production.
+    automated_checks: [SC-01]
+
+  - id: SC-13
+    title: Cryptographic Protection
+    status: implemented
+    responsibility: system
+    implementation: >-
+      Only reviewed primitives from maintained libraries are used: bcrypt for
+      password storage, HMAC-SHA256 for token signatures with the algorithm
+      pinned at verification, and SHA-256 for audit pseudonymisation. No
+      cryptography is implemented in this codebase.
+    evidence:
+      - path: apps/api/src/auth/hasher.ts
+        note: bcrypt behind a PasswordHasher interface.
+      - path: apps/api/src/auth/jwt.ts
+        note: HS256 pinned on both sign and verify.
+    automated_checks: [IA-02, IA-04]
+
+  - id: SC-18
+    title: Mobile Code
+    status: implemented
+    responsibility: system
+    implementation: >-
+      The API returns JSON only, so its Content-Security-Policy forbids
+      loading anything at all and denies framing, alongside nosniff,
+      no-referrer and cross-origin isolation headers. Responses default to
+      no-store so per-user data is not cached by intermediaries.
+    evidence:
+      - path: apps/api/src/security/headers.ts
+        note: Policy written out explicitly so it is auditable without reading a dependency.
+      - path: apps/api/src/__tests__/security.test.ts
+        note: Asserts each header on real responses.
+    automated_checks: [SC-01]
+
+  - id: SC-28
+    title: Protection of Information at Rest
+    status: partial
+    responsibility: shared
+    implementation: >-
+      Credentials are stored only as bcrypt hashes and are never returned by
+      any endpoint, which a test asserts. Volume and disk encryption are
+      provided by the hosting platform.
+    limitation: >-
+      Behavioural entries and email addresses are stored in plaintext columns.
+      Field-level encryption has not been implemented and provider disk
+      encryption has not been confirmed in writing.
+    evidence:
+      - path: packages/db/src/schema.ts
+        note: password_hash column; no plaintext credential is stored.
+      - path: apps/api/src/auth/jwt.ts
+        note: toPublicUser strips the hash from every response.
+    automated_checks: []
+    poam: [POAM-005]
+
+  # ── System and Information Integrity ──────────────────────────────────────
+  - id: SI-10
+    title: Information Input Validation
+    status: implemented
+    responsibility: system
+    implementation: >-
+      Request bodies are validated against zod schemas shared between the API
+      and the client, so both agree on what is acceptable. Validation failures
+      return a stable machine-readable code with per-field detail, which the
+      client localises. Database constraints back the application checks rather
+      than relying on them alone.
+    evidence:
+      - path: apps/api/src/routes/validate.ts
+        note: parseBody rejects anything the schema does not accept.
+      - path: packages/core/src/schemas/auth.ts
+        note: Shared schemas are the single definition of valid input.
+      - path: apps/api/src/__tests__/postgres.integration.test.ts
+        note: Asserts the unique-email constraint holds at the database.
+    automated_checks: [SI-02]
+
+  - id: SI-11
+    title: Error Handling
+    status: implemented
+    responsibility: system
+    implementation: >-
+      Unhandled errors return a generic body and a correlation id; the detail
+      stays server-side. Errors carry stable machine-readable codes that the
+      client maps to localised messages, so raw server text is never rendered
+      in the interface.
+    evidence:
+      - path: apps/api/src/app.ts
+        note: onError returns a generic body and logs detail server-side.
+      - path: packages/core/src/errors.ts
+        note: Closed set of client-facing error codes.
+    automated_checks: [SI-01]
+
+  # ── Explicitly out of scope ───────────────────────────────────────────────
+  - id: PE-3
+    title: Physical Access Control
+    status: not-applicable
+    responsibility: provider
+    implementation: >-
+      Not applicable to this boundary. The system holds no physical
+      infrastructure; data centre access control is the hosting provider's and
+      is covered by their own authorization.
+    evidence: []
+    automated_checks: []
+
+  - id: AC-12
+    title: Session Termination
+    status: planned
+    responsibility: system
+    implementation: >-
+      Not yet satisfied. Tokens carry an expiry and the maximum lifetime is
+      capped at 30 days by configuration validation, which bounds exposure but
+      is not termination.
+    limitation: >-
+      There is no server-side logout and no revocation. A token remains valid
+      until it expires, regardless of what happens to the account behind it.
+    evidence: []
+    automated_checks: []
+    poam: [POAM-007]
+
+  - id: SI-4
+    title: System Monitoring
+    status: planned
+    responsibility: shared
+    implementation: >-
+      The data a monitoring capability needs is produced -- structured security
+      events with outcomes, pseudonymous subjects and correlation ids -- but
+      nothing consumes it yet.
+    limitation: >-
+      No collection, no detection rules, no alerting. Events are written to
+      stdout and, beyond whatever the platform retains, go unread.
+    evidence:
+      - path: apps/api/src/security/audit.ts
+        note: The event stream a monitoring capability would consume.
+    automated_checks: []
+    poam: [POAM-003]
+
+  - id: CP-9
+    title: System Backup
+    status: inherited
+    responsibility: provider
+    implementation: >-
+      Database backups are provided by the hosting platform. Application state
+      is reproducible from the container image and the committed migrations,
+      both of which are verified on every pipeline run.
+    limitation: >-
+      The provider's schedule and retention have not been confirmed in writing,
+      and no restore has been attempted from this system's backups.
+    evidence:
+      - path: packages/db/drizzle
+        note: Committed migrations reproduce the schema from empty.
+    automated_checks: []
+    poam: [POAM-004]

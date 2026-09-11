@@ -1,0 +1,367 @@
+{
+  "total": 24,
+  "passed": 23,
+  "failed": 1,
+  "checks": [
+    {
+      "id": "IA-01",
+      "title": "No default or placeholder token signing key",
+      "nist_800_53": [
+        "IA-5(1)",
+        "SC-12"
+      ],
+      "owasp_asvs": [
+        "V2.10.4",
+        "V6.4.1"
+      ],
+      "stig_rule": null,
+      "severity": "critical",
+      "status": "PASS",
+      "evidence": "env.ts requires a unique, >=32-byte secret in production and generates an ephemeral key otherwise"
+    },
+    {
+      "id": "IA-02",
+      "title": "Password hashing work factor",
+      "nist_800_53": [
+        "IA-5(1)",
+        "SC-28"
+      ],
+      "owasp_asvs": [
+        "V2.4.1"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "bcrypt work factor 12 (>= 12)"
+    },
+    {
+      "id": "IA-03",
+      "title": "Login does not disclose which accounts exist",
+      "nist_800_53": [
+        "IA-5",
+        "SC-8"
+      ],
+      "owasp_asvs": [
+        "V2.2.1"
+      ],
+      "stig_rule": null,
+      "severity": "medium",
+      "status": "PASS",
+      "evidence": "login compares against a decoy hash when no account exists, so timing does not reveal registration"
+    },
+    {
+      "id": "IA-04",
+      "title": "Token algorithm and issuer pinned",
+      "nist_800_53": [
+        "SC-13",
+        "IA-2"
+      ],
+      "owasp_asvs": [
+        "V3.5.2"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "apps/api/src/auth/jwt.ts: jwt.verify pins the algorithm and checks the issuer"
+    },
+    {
+      "id": "AC-01",
+      "title": "Rate limiting on credential endpoints",
+      "nist_800_53": [
+        "AC-7",
+        "SC-5"
+      ],
+      "owasp_asvs": [
+        "V2.2.1",
+        "V11.1.4"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "separate rate-limit buckets for /v1/auth/* and the rest of /v1/*"
+    },
+    {
+      "id": "AC-02",
+      "title": "Forwarded client addresses are not trusted by default",
+      "nist_800_53": [
+        "AC-7",
+        "SC-7"
+      ],
+      "owasp_asvs": [
+        "V13.2.5"
+      ],
+      "stig_rule": null,
+      "severity": "medium",
+      "status": "PASS",
+      "evidence": "X-Forwarded-For is only believed when TRUST_PROXY is explicitly enabled (default false)"
+    },
+    {
+      "id": "AC-03",
+      "title": "Cross-origin access is allow-listed in production",
+      "nist_800_53": [
+        "AC-4",
+        "SC-7"
+      ],
+      "owasp_asvs": [
+        "V14.5.3"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "production rejects wildcard and non-https CORS origins at startup"
+    },
+    {
+      "id": "SC-01",
+      "title": "Response hardening headers",
+      "nist_800_53": [
+        "SC-8(1)",
+        "SC-18"
+      ],
+      "owasp_asvs": [
+        "V14.4.1",
+        "V14.4.3"
+      ],
+      "stig_rule": null,
+      "severity": "medium",
+      "status": "PASS",
+      "evidence": "apps/api/src/security/headers.ts: full response hardening header set"
+    },
+    {
+      "id": "SC-02",
+      "title": "Request bodies are bounded",
+      "nist_800_53": [
+        "SC-5"
+      ],
+      "owasp_asvs": [
+        "V12.1.1"
+      ],
+      "stig_rule": null,
+      "severity": "medium",
+      "status": "PASS",
+      "evidence": "request bodies capped at config.maxBodyBytes"
+    },
+    {
+      "id": "AU-01",
+      "title": "Audit records carry the required facts",
+      "nist_800_53": [
+        "AU-3",
+        "AU-2"
+      ],
+      "owasp_asvs": [
+        "V7.1.3"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "SecurityEvent carries ts, event, outcome, requestId, actor, sourceIp (the facts AU-3 requires)"
+    },
+    {
+      "id": "AU-02",
+      "title": "Audit records exclude credentials and personal data",
+      "nist_800_53": [
+        "AU-9",
+        "SI-11"
+      ],
+      "owasp_asvs": [
+        "V7.1.1"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "addresses are hashed before logging, asserted by a behaviour test"
+    },
+    {
+      "id": "SI-01",
+      "title": "Errors disclose nothing across the trust boundary",
+      "nist_800_53": [
+        "SI-11"
+      ],
+      "owasp_asvs": [
+        "V7.4.1"
+      ],
+      "stig_rule": null,
+      "severity": "medium",
+      "status": "PASS",
+      "evidence": "unhandled errors return a generic body plus a correlation id; detail stays server-side"
+    },
+    {
+      "id": "CM-01",
+      "title": "Container runs as a non-root user",
+      "nist_800_53": [
+        "CM-6",
+        "AC-6"
+      ],
+      "owasp_asvs": [
+        "V14.2.6"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "runtime stage drops to the unprivileged node user"
+    },
+    {
+      "id": "CM-02",
+      "title": "Base image pinned by digest",
+      "nist_800_53": [
+        "CM-2",
+        "SA-12"
+      ],
+      "owasp_asvs": [
+        "V14.2.1"
+      ],
+      "stig_rule": null,
+      "severity": "medium",
+      "status": "PASS",
+      "evidence": "base image pinned by digest"
+    },
+    {
+      "id": "CM-03",
+      "title": "Runtime image excludes build tooling",
+      "nist_800_53": [
+        "CM-7",
+        "SA-15"
+      ],
+      "owasp_asvs": [
+        "V14.2.2"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "runtime image receives only the production dependency tree and compiled output"
+    },
+    {
+      "id": "CM-04",
+      "title": "Container privileges are constrained",
+      "nist_800_53": [
+        "CM-6",
+        "AC-6"
+      ],
+      "owasp_asvs": [
+        "V14.1.1"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "api service runs with no-new-privileges, all capabilities dropped and a read-only root filesystem"
+    },
+    {
+      "id": "CM-05",
+      "title": "Database is not published to the host",
+      "nist_800_53": [
+        "SC-7",
+        "CM-7"
+      ],
+      "owasp_asvs": [
+        "V1.14.6"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "PostgreSQL is reachable only on the compose network"
+    },
+    {
+      "id": "CM-06",
+      "title": "No credentials committed in orchestration files",
+      "nist_800_53": [
+        "IA-5",
+        "SC-12"
+      ],
+      "owasp_asvs": [
+        "V2.10.1"
+      ],
+      "stig_rule": null,
+      "severity": "critical",
+      "status": "PASS",
+      "evidence": "secrets are required inputs; compose refuses to start without them"
+    },
+    {
+      "id": "CM-07",
+      "title": "Installs are reproducible from a committed lockfile",
+      "nist_800_53": [
+        "CM-2",
+        "SA-10"
+      ],
+      "owasp_asvs": [
+        "V14.2.4"
+      ],
+      "stig_rule": null,
+      "severity": "medium",
+      "status": "PASS",
+      "evidence": "lockfile committed and the image builds with npm ci"
+    },
+    {
+      "id": "SI-02",
+      "title": "Request input is schema-validated",
+      "nist_800_53": [
+        "SI-10"
+      ],
+      "owasp_asvs": [
+        "V5.1.3"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "write routes validate bodies against shared zod schemas before use"
+    },
+    {
+      "id": "SA-01",
+      "title": "Automated security tests exist",
+      "nist_800_53": [
+        "SA-11",
+        "CA-2"
+      ],
+      "owasp_asvs": [
+        "V14.1.1"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "47 security behaviour tests across 3 suites"
+    },
+    {
+      "id": "RA-01",
+      "title": "Pipeline enforces security gates",
+      "nist_800_53": [
+        "RA-5",
+        "SA-11"
+      ],
+      "owasp_asvs": [
+        "V14.2.1"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "pipeline runs secret scanning, dependency audit, compliance scan, SBOM, tests"
+    },
+    {
+      "id": "SA-02",
+      "title": "Pipeline runs with least privilege",
+      "nist_800_53": [
+        "CM-5",
+        "AC-6"
+      ],
+      "owasp_asvs": [
+        "V14.2.4"
+      ],
+      "stig_rule": null,
+      "severity": "high",
+      "status": "PASS",
+      "evidence": "workflows default to contents:read, widen scope only where needed, and do not persist checkout credentials"
+    },
+    {
+      "id": "SA-03",
+      "title": "Pipeline actions pinned to immutable commit SHAs",
+      "nist_800_53": [
+        "SA-12",
+        "CM-5"
+      ],
+      "owasp_asvs": [
+        "V14.2.4"
+      ],
+      "stig_rule": null,
+      "severity": "medium",
+      "status": "FAIL",
+      "evidence": "5 action reference(s) resolve by mutable tag: actions/checkout@v5, actions/setup-node@v5, actions/upload-artifact@v4, github/codeql-action/analyze@v3, github/codeql-action/init@v3 \u2014 run scripts/pin_actions.py to rewrite them to commit SHAs"
+    }
+  ]
+}
