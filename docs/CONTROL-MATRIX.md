@@ -131,13 +131,15 @@ Email addresses are hashed before they reach a log record, so repeated attempts 
 
 | Control | Title | Status | Owner | Automated checks | POA&M |
 |---|---|---|---|---|---|
-| `CA-7` | Continuous Monitoring | Implemented | system | RA-01 | — |
+| `CA-7` | Continuous Monitoring | Implemented | system | RA-01 | POAM-011 |
 
 ### CA-7 — Continuous Monitoring
 
 **Status:** Implemented · **Responsibility:** system
 
 Security gates run on every pull request and on a weekly schedule, so advisories published against unchanged code are still found. Each gate writes a machine-readable report that is retained as a build artifact and forms the evidence trail for this package.
+
+> **Limitation.** Evidence verification is skipped in this package's own pipeline: Evergreen is private and the workflow token cannot read it, so the check that ties these controls to real files runs only locally until a read token is provisioned.
 
 **Evidence**
 

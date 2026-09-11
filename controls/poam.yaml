@@ -293,3 +293,35 @@ items:
     owner: UNASSIGNED
     status: open
     scheduled_completion: '2026-09-18'
+
+  - id: POAM-011
+    title: Evidence paths are not verified in continuous integration
+    controls: [CA-7, CM-3]
+    weakness: >-
+      tools/validate_package.py confirms that every control's evidence resolves
+      to a real file, but it can only do so with the Evergreen repository
+      present. Evergreen is private and the HandOff workflow's token is scoped
+      to HandOff alone, so CI validates structure, claims and weakness tracking
+      while evidence verification is skipped. The strongest check in the package
+      therefore runs only when someone runs it locally.
+    how_found: >-
+      The first CI run reported all 59 evidence paths missing. The paths were
+      correct: the cross-repository checkout had failed for lack of access and
+      left an empty directory behind, which the validator read as a present
+      repository.
+    severity: medium
+    likelihood: medium
+    impact: moderate
+    risk: medium
+    remediation: >-
+      Create a fine-grained token with Contents: read on Evergreen and store it
+      as the EVERGREEN_READ_TOKEN secret on HandOff; the workflow already uses
+      it when present. Alternatively move package validation into Evergreen's
+      own pipeline, where the repository is checked out anyway. The validator
+      now reports a PARTIAL PASS and names the reason rather than claiming
+      evidence was verified.
+    milestones:
+      - { date: '2026-09-25', description: Provision the read token and confirm CI reports a full PASS }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-09-25'

@@ -200,6 +200,37 @@ def validate_poam(poam: Dict[str, Any], control_ids: set, report: Report) -> set
     return seen
 
 
+def resolve_evergreen(path: Optional[Path], report: Report) -> Optional[Path]:
+    """Return the Evergreen checkout, or None when it is not really there.
+
+    A failed `actions/checkout` still leaves the target directory behind, with
+    a .git and nothing else. Treating that as a present repository made every
+    evidence path look missing and produced "the package does not match the
+    system it describes" -- a confident, wrong answer that took a CI log to
+    disprove. A tool that cannot verify must say so, not invent 59 failures.
+    """
+    if path is None or not path.exists():
+        report.warn(f"Evergreen repository not found at {path}; evidence paths were NOT verified")
+        return None
+
+    # Sentinel: the repository root manifest. Present in any real checkout,
+    # absent from an empty directory left by a failed one.
+    manifest = path / "package.json"
+    if not manifest.exists():
+        report.warn(
+            f"{path} exists but holds no Evergreen checkout (package.json missing) — "
+            "evidence paths were NOT verified. If this is CI, the repository is private "
+            "and the workflow token cannot read it; supply a read token."
+        )
+        return None
+
+    if '"name": "evergreen"' not in manifest.read_text(encoding="utf-8", errors="replace"):
+        report.warn(f"{path} does not look like the Evergreen repository — evidence paths were NOT verified")
+        return None
+
+    return path
+
+
 def load_compliance(path: Optional[Path], report: Report) -> Dict[str, str]:
     if path is None:
         return {}
@@ -221,11 +252,7 @@ def main() -> int:
 
     report = Report()
 
-    evergreen: Optional[Path] = args.evergreen if args.evergreen and args.evergreen.exists() else None
-    if evergreen is None:
-        report.warn(
-            f"Evergreen repository not found at {args.evergreen}; evidence paths were not verified"
-        )
+    evergreen = resolve_evergreen(args.evergreen, report)
 
     sctm = load_yaml(PACKAGE_ROOT / "controls" / "sctm.yaml")
     poam = load_yaml(PACKAGE_ROOT / "controls" / "poam.yaml")
@@ -262,7 +289,7 @@ def main() -> int:
     print(f"Package  : {sctm.get('system', {}).get('name', '?')} ({sctm.get('system', {}).get('identifier', '?')})")
     print(f"Controls : {len(controls)}")
     print(f"POA&M    : {len(poam_ids)} item(s)")
-    print(f"Evidence : {'verified against ' + str(evergreen) if evergreen else 'NOT verified'}")
+    print(f"Evidence : {'verified against ' + str(evergreen) if evergreen else 'NOT VERIFIED — see warnings'}")
     print(f"Checks   : {len(checks) or 'none supplied'}")
 
     if report.warnings:
@@ -281,7 +308,13 @@ def main() -> int:
         print("\nFAIL: warnings present and --strict was requested.")
         return 1
 
-    print("\nPASS: every evidence path resolves, every claim is backed, every weakness is tracked.")
+    # Say exactly what was checked. "every evidence path resolves" is a lie
+    # when the repository holding those paths was never read.
+    if evergreen:
+        print("\nPASS: every evidence path resolves, every claim is backed, every weakness is tracked.")
+    else:
+        print("\nPARTIAL PASS: structure, claims and weakness tracking are sound, "
+              "but evidence paths were NOT verified — see the warnings above.")
     return 0
 
 

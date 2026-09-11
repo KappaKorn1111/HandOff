@@ -192,6 +192,11 @@ controls:
       advisories published against unchanged code are still found. Each gate
       writes a machine-readable report that is retained as a build artifact and
       forms the evidence trail for this package.
+    limitation: >-
+      Evidence verification is skipped in this package's own pipeline: Evergreen
+      is private and the workflow token cannot read it, so the check that ties
+      these controls to real files runs only locally until a read token is
+      provisioned.
     evidence:
       - path: .github/workflows/security.yml
         note: Scheduled weekly re-scan plus per-PR gates.
@@ -199,6 +204,7 @@ controls:
         repo: handoff
         note: Monitoring plan, frequencies and responsibilities.
     automated_checks: [RA-01]
+    poam: [POAM-011]
 
   # ── Configuration Management ──────────────────────────────────────────────
   - id: CM-2
