@@ -29,14 +29,39 @@ jobs:
           path: HandOff
           persist-credentials: false
 
-      # Evidence paths resolve against the implementing repository. Without it
-      # the validator still runs and warns; structural checks are unaffected.
-      - uses: actions/checkout@v5
+      # Evidence paths resolve against the implementing repository, and they
+      # must resolve against the MATCHING revision of it. Checking out
+      # Evergreen's default branch reported all 59 evidence paths as missing,
+      # because the implementation lives on the feature branch -- a CI bug that
+      # read as a package defect. Prefer the branch of the same name, and fall
+      # back to the default branch when there isn't one.
+      - name: Check out Evergreen at the matching branch
+        id: evergreen_matching
         continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          repository: KappaKorn1111/evergreen
+          ref: ${{ github.head_ref || github.ref_name }}
+          path: evergreen
+          persist-credentials: false
+
+      - name: Fall back to the Evergreen default branch
+        if: steps.evergreen_matching.outcome != 'success'
+        continue-on-error: true
+        uses: actions/checkout@v5
         with:
           repository: KappaKorn1111/evergreen
           path: evergreen
           persist-credentials: false
+
+      - name: Report which Evergreen revision is being validated against
+        run: |
+          if [ -d evergreen/.git ]; then
+            echo "Evergreen ref: $(git -C evergreen rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached)"
+            echo "Evergreen sha: $(git -C evergreen rev-parse --short HEAD)"
+          else
+            echo "::warning::Evergreen was not checked out; evidence paths will not be verified."
+          fi
 
       - name: Install PyYAML
         run: pip install --quiet pyyaml
