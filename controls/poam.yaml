@@ -325,3 +325,32 @@ items:
     owner: UNASSIGNED
     status: open
     scheduled_completion: '2026-09-25'
+
+  - id: POAM-012
+    title: Static-analysis findings are not surfaced in the Security tab
+    controls: [RA-5, SI-4]
+    weakness: >-
+      Code scanning is not enabled on the Evergreen repository, which on a
+      private repository requires GitHub Advanced Security. CodeQL analysis
+      runs and its findings gate the build, but results cannot be published to
+      the Security tab. That costs the things the tab provides and an artifact
+      does not: inline annotations on the pull request that introduced a
+      finding, alert state carried across runs, and a dismissal trail.
+    how_found: >-
+      The CodeQL job failed with "Code scanning is not enabled for this
+      repository". The analysis had completed; only the upload was refused.
+    severity: low
+    likelihood: high
+    impact: low
+    risk: low
+    remediation: >-
+      Enable code scanning on the repository, then set upload: true on the
+      analyze step and restore security-events: write. Until then the SARIF is
+      retained as a build artifact and scripts/sarif_gate.py fails the build on
+      findings at or above high, so nothing ships unreviewed — the gap is in
+      visibility and history, not in enforcement.
+    milestones:
+      - { date: '2026-10-11', description: Decide on Advanced Security; enable code scanning or record the decision not to }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-10-11'

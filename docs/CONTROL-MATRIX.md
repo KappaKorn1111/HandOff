@@ -302,7 +302,7 @@ Not applicable to this boundary. The system holds no physical infrastructure; da
 
 | Control | Title | Status | Owner | Automated checks | POA&M |
 |---|---|---|---|---|---|
-| `RA-5` | Vulnerability Monitoring and Scanning | Implemented | system | RA-01 | POAM-006 |
+| `RA-5` | Vulnerability Monitoring and Scanning | Implemented | system | RA-01 | POAM-006, POAM-012 |
 
 ### RA-5 — Vulnerability Monitoring and Scanning
 
@@ -310,12 +310,13 @@ Not applicable to this boundary. The system holds no physical infrastructure; da
 
 Three layers run on every pull request and weekly: the dependency closure that actually ships is audited and gates the build at high severity; the built image is scanned for vulnerable operating-system and language packages; and the Dockerfile and compose file are scanned for misconfiguration. Closure resolution is exact, so advisories in the mobile toolchain are reported without blocking a service that does not contain that code.
 
-> **Limitation.** Scanning is in place, but the mobile toolchain currently carries open advisories that cannot be cleared without a major framework upgrade.
+> **Limitation.** Scanning is in place, but the mobile toolchain currently carries open advisories that cannot be cleared without a major framework upgrade, and static-analysis findings gate the build from a build artifact rather than being surfaced in the repository's Security tab.
 
 **Evidence**
 
 - `evergreen:scripts/dependency_audit.py` — Resolves the production closure from the lockfile.
 - `evergreen:.github/workflows/security.yml` — Trivy image and config scanning, both failing the build.
+- `evergreen:scripts/sarif_gate.py` — Fails the build on CodeQL findings at or above high severity.
 
 ## SA — System and Services Acquisition
 

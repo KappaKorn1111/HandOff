@@ -382,14 +382,18 @@ controls:
       contain that code.
     limitation: >-
       Scanning is in place, but the mobile toolchain currently carries open
-      advisories that cannot be cleared without a major framework upgrade.
+      advisories that cannot be cleared without a major framework upgrade, and
+      static-analysis findings gate the build from a build artifact rather than
+      being surfaced in the repository's Security tab.
     evidence:
       - path: scripts/dependency_audit.py
         note: Resolves the production closure from the lockfile.
       - path: .github/workflows/security.yml
         note: Trivy image and config scanning, both failing the build.
+      - path: scripts/sarif_gate.py
+        note: Fails the build on CodeQL findings at or above high severity.
     automated_checks: [RA-01]
-    poam: [POAM-006]
+    poam: [POAM-006, POAM-012]
 
   # ── System and Services Acquisition ───────────────────────────────────────
   - id: SA-11
