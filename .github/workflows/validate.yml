@@ -1,0 +1,110 @@
+# Keeps the authorization package honest: a claim that no longer matches the
+# repository fails here rather than surviving until an assessment.
+name: Validate package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # The package can go stale without anyone editing it, because the system it
+    # describes keeps changing.
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: HandOff
+          persist-credentials: false
+
+      # Evidence paths resolve against the implementing repository, and they
+      # must resolve against the MATCHING revision of it. Checking out
+      # Evergreen's default branch reported all 59 evidence paths as missing,
+      # because the implementation lives on the feature branch -- a CI bug that
+      # read as a package defect. Prefer the branch of the same name, and fall
+      # back to the default branch when there isn't one.
+      # Evergreen is a private repository, and this workflow's GITHUB_TOKEN is
+      # scoped to HandOff alone — it cannot read it. Set an EVERGREEN_READ_TOKEN
+      # secret (a fine-grained token with Contents: read on Evergreen) to turn
+      # on evidence verification. Without one the run still validates structure,
+      # claims and weakness tracking, and says plainly that evidence was not
+      # checked. Tracked as POAM-011.
+      - name: Check out Evergreen at the matching branch
+        id: evergreen_matching
+        continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          repository: KappaKorn1111/evergreen
+          ref: ${{ github.head_ref || github.ref_name }}
+          token: ${{ secrets.EVERGREEN_READ_TOKEN || github.token }}
+          path: evergreen
+          persist-credentials: false
+
+      - name: Fall back to the Evergreen default branch
+        if: steps.evergreen_matching.outcome != 'success'
+        continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          repository: KappaKorn1111/evergreen
+          token: ${{ secrets.EVERGREEN_READ_TOKEN || github.token }}
+          path: evergreen
+          persist-credentials: false
+
+      # A failed checkout still leaves the directory behind, so test for real
+      # content rather than for the path.
+      - name: Report which Evergreen revision is being validated against
+        run: |
+          if [ -f evergreen/package.json ]; then
+            echo "Evergreen ref: $(git -C evergreen rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached)"
+            echo "Evergreen sha: $(git -C evergreen rev-parse --short HEAD 2>/dev/null || echo unknown)"
+          else
+            echo "::warning::Evergreen could not be read (private repository, no EVERGREEN_READ_TOKEN secret). Structure is validated; evidence paths are NOT. See POAM-011."
+            rm -rf evergreen
+          fi
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      - name: Generate the compliance report
+        continue-on-error: true
+        run: |
+          if [ -d evergreen ]; then
+            python3 evergreen/scripts/compliance_scan.py \
+              --json-out HandOff/evidence/compliance.json || true
+          fi
+
+      - name: Confirm the rendered matrix matches its source
+        working-directory: HandOff
+        run: python3 tools/render_sctm.py --check
+
+      - name: Validate the package against the repository
+        working-directory: HandOff
+        run: |
+          args=""
+          [ -f evidence/compliance.json ] && args="--compliance evidence/compliance.json"
+          python3 tools/validate_package.py --evergreen ../evergreen $args
+
+      - name: Export GRC records
+        working-directory: HandOff
+        run: python3 tools/export_emass.py --out-dir export
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authorization-package
+          path: |
+            HandOff/export/
+            HandOff/evidence/
+          if-no-files-found: warn

@@ -1,0 +1,367 @@
+# Plan of Action and Milestones (POA&M)
+#
+# Every weakness known to the team, whether or not it is convenient. An item
+# leaves this file when it is fixed and the fix is verified -- not when it stops
+# being discussed.
+#
+# Items are seeded from real findings during the DevSecOps hardening of
+# 2026-09-11: each was either confirmed by reproducing it or is a limitation of
+# a control that was implemented. Nothing here is hypothetical.
+#
+# risk is the residual rating AFTER the mitigations described in the SCTM.
+
+metadata:
+  system: Evergreen
+  identifier: EVG-001
+  baseline_date: '2026-09-11'
+  # Owners are role names. The ISSO binds them to people at authorization;
+  # tools/validate_package.py reports any item still carrying UNASSIGNED.
+  source_of_findings: >-
+    Security review and hardening of the API, supply chain, container and
+    delivery pipeline. Findings were reproduced before being recorded.
+
+items:
+  - id: POAM-001
+    title: Rate-limit counters do not hold across replicas
+    controls: [AC-7, SC-5]
+    weakness: >-
+      The rate limiter keeps its counters in process memory. A deployment
+      running N replicas therefore permits roughly N times the configured
+      limit, because each replica counts only the requests it happens to
+      receive. Throttling on the credential endpoints is correspondingly
+      weaker than the configuration states.
+    how_found: >-
+      Identified while implementing the limiter; the MemoryRateLimitStore
+      docstring records the same limitation at the source.
+    severity: medium
+    likelihood: high
+    impact: moderate
+    risk: medium
+    remediation: >-
+      Implement a Redis-backed RateLimitStore against the existing interface.
+      No call site changes: app.ts already accepts an injected store. Add a
+      per-account bucket alongside the per-address one so a distributed
+      attempt against a single account is also braked.
+    milestones:
+      - { date: '2026-10-11', description: Provision a shared cache and implement RedisRateLimitStore }
+      - { date: '2026-10-25', description: Add per-account bucket and load-test the limits under replicas }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-10-25'
+
+  - id: POAM-002
+    title: Pipeline actions resolve by mutable tag rather than commit SHA
+    controls: [SA-15, CM-5]
+    weakness: >-
+      Workflow steps reference actions as owner/repo@v5. A tag can be moved by
+      anyone who controls the action's repository, including an attacker who
+      compromises it, changing what executes in the pipeline with access to the
+      workflow token and job secrets.
+    how_found: >-
+      Reported by scripts/compliance_scan.py check SA-03, which names each
+      unpinned reference.
+    severity: medium
+    likelihood: low
+    impact: high
+    risk: medium
+    remediation: >-
+      Run scripts/pin_actions.py from an environment with GitHub API access to
+      rewrite every reference to a commit SHA, keeping the readable tag as a
+      trailing comment. Enable Dependabot for github-actions so pins are
+      updated deliberately. The SHAs could not be resolved when the pipeline
+      was authored because API access was scoped to this project's own
+      repositories.
+    milestones:
+      - { date: '2026-09-25', description: Pin all references and verify SA-03 passes }
+      - { date: '2026-10-02', description: Enable Dependabot for the github-actions ecosystem }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-10-02'
+
+  - id: POAM-003
+    title: No alerting or exercised incident response procedure
+    controls: [IR-4, IR-6, SI-4]
+    weakness: >-
+      Security events are emitted as structured records but nothing consumes
+      them. There is no alert on a burst of failed logins, no on-call rotation,
+      and the response procedure has never been walked through. Detection
+      currently depends on a person choosing to read the logs.
+    how_found: >-
+      Gap analysis while documenting the audit trail: records exist, consumers
+      do not.
+    severity: high
+    likelihood: medium
+    impact: high
+    risk: high
+    remediation: >-
+      Ship the audit stream to a log platform, then alert on authentication
+      failure rate per pseudonymous account, rate-limit refusal volume, and any
+      config.loaded event reporting an unexpected environment. Assign an on-call
+      owner and run a tabletop exercise against the procedure in
+      docs/05-incident-response.md.
+    milestones:
+      - { date: '2026-10-11', description: Ship audit events to the log platform with retention set }
+      - { date: '2026-10-25', description: Implement the three detection rules and route them }
+      - { date: '2026-11-08', description: Tabletop exercise; revise the procedure from what it surfaces }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-11-08'
+
+  - id: POAM-004
+    title: Database backup and restore have never been exercised
+    controls: [CP-9, CP-10]
+    weakness: >-
+      Recovery depends on the hosting provider's backup service. No restore has
+      been performed, so neither the recovery time nor the integrity of a
+      restored points ledger is known. An untested restore is not a recovery
+      capability.
+    how_found: >-
+      Gap analysis while writing the operations runbook. The application side
+      of recovery is verified in CI; the data side is not.
+    severity: medium
+    likelihood: low
+    impact: high
+    risk: medium
+    remediation: >-
+      Confirm the provider's backup schedule and retention in writing. Restore
+      a backup into an isolated environment, run the integration suite against
+      it, and record the measured recovery time in the runbook.
+    milestones:
+      - { date: '2026-10-11', description: Obtain written backup schedule and retention terms }
+      - { date: '2026-11-08', description: Perform and document a full restore rehearsal }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-11-08'
+
+  - id: POAM-005
+    title: Personal data stored without field-level encryption
+    controls: [SC-28, SC-28(1)]
+    weakness: >-
+      Email addresses and the per-user behavioural history are stored in
+      plaintext columns. Credentials are properly hashed, but anyone with a
+      database copy reads every account's address and activity. Provider disk
+      encryption is assumed and has not been confirmed in writing.
+    how_found: >-
+      Schema review against the moderate confidentiality categorization.
+    severity: medium
+    likelihood: low
+    impact: moderate
+    risk: medium
+    remediation: >-
+      Obtain the provider's encryption-at-rest attestation. Assess
+      deterministic encryption for the email column, which must stay searchable
+      for login, against the operational cost of key management; record the
+      decision either way, including a decision not to encrypt.
+    milestones:
+      - { date: '2026-10-11', description: Obtain provider encryption-at-rest attestation }
+      - { date: '2026-11-22', description: Decide on field-level encryption and record the rationale }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-11-22'
+
+  - id: POAM-006
+    title: Mobile dependency tree carries 30 advisories including a critical
+    controls: [RA-5, SA-12]
+    weakness: >-
+      The apps/mobile production closure resolves 690 packages containing 30
+      advisories, among them critical node-tar path-traversal and arbitrary
+      file write issues reached through Expo and Metro. None of this code is
+      installed in the API container, so the deployed service is unaffected,
+      but it executes on developer machines and on CI runners that hold
+      credentials.
+    how_found: >-
+      scripts/dependency_audit.py --workspace apps/mobile, which resolves the
+      exact closure rather than the hoisted monorepo tree.
+    severity: high
+    likelihood: low
+    impact: high
+    risk: medium
+    remediation: >-
+      Upgrade Expo 52 to a release whose toolchain clears the advisories
+      (currently 57). This is a major upgrade with its own regression surface
+      across the React Native and navigation stack, so it needs its own change
+      and a full device test pass rather than being folded into a security fix.
+    milestones:
+      - { date: '2026-10-25', description: Trial the Expo upgrade on a branch; catalogue breaking changes }
+      - { date: '2026-11-22', description: Complete upgrade with device testing on iOS and Android }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-11-22'
+
+  - id: POAM-007
+    title: Bearer tokens cannot be revoked
+    controls: [AC-12, IA-2, IA-11]
+    weakness: >-
+      Tokens are stateless and valid for their full lifetime, seven days by
+      default. A stolen token cannot be invalidated: changing a password,
+      deleting an account or detecting compromise has no effect until the token
+      expires on its own. There is also no logout that means anything
+      server-side.
+    how_found: >-
+      Review of the token lifecycle while pinning the signing algorithm.
+    severity: medium
+    likelihood: medium
+    impact: high
+    risk: medium
+    remediation: >-
+      Add a token version or issued-at floor per user, checked during
+      authentication, so a password change or explicit revocation invalidates
+      every token issued earlier. Consider shortening the default lifetime and
+      introducing refresh tokens. The upper bound is already capped at 30 days
+      by configuration validation.
+    milestones:
+      - { date: '2026-10-25', description: Add per-user token epoch and check it during authentication }
+      - { date: '2026-11-08', description: Shorten default lifetime and add server-side logout }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-11-08'
+
+  - id: POAM-008
+    title: Password hashes are not upgraded when the work factor rises
+    controls: [IA-5(1)]
+    weakness: >-
+      The bcrypt work factor was raised from 10 to 12. Because the cost is
+      encoded in each hash, credentials created earlier keep verifying at the
+      old, weaker factor indefinitely. Those accounts also verify measurably
+      faster than new ones, which partially reintroduces the timing difference
+      the decoy-hash path removes.
+    how_found: >-
+      Identified while raising the work factor; deliberately not fixed in that
+      change because it requires a repository interface change.
+    severity: low
+    likelihood: medium
+    impact: low
+    risk: low
+    remediation: >-
+      Add an updatePasswordHash method to UserRepo and, on a successful login,
+      re-hash at the current factor when the stored hash encodes a lower one.
+      Covers existing accounts silently, on their next login.
+    milestones:
+      - { date: '2026-11-22', description: Implement rehash-on-login across both repository implementations }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-11-22'
+
+  - id: POAM-009
+    title: Passwords longer than 72 bytes are silently truncated
+    controls: [IA-5(1)]
+    weakness: >-
+      bcrypt considers only the first 72 bytes of input. The registration
+      schema accepts up to 128 characters, so two passwords sharing a 72-byte
+      prefix are interchangeable, and a user choosing a long passphrase gets
+      less strength than they believe.
+    how_found: >-
+      Review of the hashing path against the input schema's stated bounds.
+    severity: low
+    likelihood: low
+    impact: low
+    risk: low
+    remediation: >-
+      Pre-hash the password with SHA-256 and base64-encode before passing it to
+      bcrypt, which bounds the input length while preserving full entropy. This
+      changes the derivation, so it must be rolled out together with the
+      rehash-on-login work in POAM-008 rather than separately.
+    milestones:
+      - { date: '2026-11-22', description: Implement pre-hashing alongside POAM-008 rollout }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-11-22'
+
+  - id: POAM-010
+    title: Container image has never been built or scanned
+    controls: [CM-2, RA-5]
+    weakness: >-
+      The hardened Dockerfile was authored in an environment with no Docker
+      daemon, so no image was ever produced from it and no image scan has run.
+      Each build stage was replicated on disk and the assembled runtime layer
+      was booted successfully, but that is not the same as a real build.
+    how_found: >-
+      Stated limitation of the hardening change; recorded rather than left as
+      an unexamined assumption.
+    severity: medium
+    likelihood: medium
+    impact: moderate
+    risk: medium
+    remediation: >-
+      The container job in .github/workflows/security.yml builds the image,
+      asserts it does not run as root, and runs Trivy package and config scans.
+      Confirm the first pipeline run passes all three and attach the reports as
+      evidence; correct the Dockerfile if the real build differs from the
+      replicated stages.
+    milestones:
+      - { date: '2026-09-18', description: Confirm the first CI image build and scan succeed; attach reports }
+    owner: UNASSIGNED
+    status: completed
+    scheduled_completion: '2026-09-18'
+    completed_date: '2026-09-11'
+    completion_evidence: >-
+      The container job built the image on a runner, asserted through docker
+      inspect that it does not run as root, and passed both Trivy scans. The
+      image scan initially reported 4 HIGH — libcrypto3 and libssl3 at 3.5.6-r0,
+      carrying CVE-2026-45447 and CVE-2026-14456 — which were cleared by
+      upgrading those packages in the runtime stage; the rerun is clean at
+      HIGH/CRITICAL. The Dockerfile and compose file also pass Trivy's
+      configuration scan. Reports are retained as the container-scan-reports
+      build artifact. The replicated-stage verification used while authoring
+      the Dockerfile held: nothing about the real build contradicted it.
+
+  - id: POAM-011
+    title: Evidence paths are not verified in continuous integration
+    controls: [CA-7, CM-3]
+    weakness: >-
+      tools/validate_package.py confirms that every control's evidence resolves
+      to a real file, but it can only do so with the Evergreen repository
+      present. Evergreen is private and the HandOff workflow's token is scoped
+      to HandOff alone, so CI validates structure, claims and weakness tracking
+      while evidence verification is skipped. The strongest check in the package
+      therefore runs only when someone runs it locally.
+    how_found: >-
+      The first CI run reported all 59 evidence paths missing. The paths were
+      correct: the cross-repository checkout had failed for lack of access and
+      left an empty directory behind, which the validator read as a present
+      repository.
+    severity: medium
+    likelihood: medium
+    impact: moderate
+    risk: medium
+    remediation: >-
+      Create a fine-grained token with Contents: read on Evergreen and store it
+      as the EVERGREEN_READ_TOKEN secret on HandOff; the workflow already uses
+      it when present. Alternatively move package validation into Evergreen's
+      own pipeline, where the repository is checked out anyway. The validator
+      now reports a PARTIAL PASS and names the reason rather than claiming
+      evidence was verified.
+    milestones:
+      - { date: '2026-09-25', description: Provision the read token and confirm CI reports a full PASS }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-09-25'
+
+  - id: POAM-012
+    title: Static-analysis findings are not surfaced in the Security tab
+    controls: [RA-5, SI-4]
+    weakness: >-
+      Code scanning is not enabled on the Evergreen repository, which on a
+      private repository requires GitHub Advanced Security. CodeQL analysis
+      runs and its findings gate the build, but results cannot be published to
+      the Security tab. That costs the things the tab provides and an artifact
+      does not: inline annotations on the pull request that introduced a
+      finding, alert state carried across runs, and a dismissal trail.
+    how_found: >-
+      The CodeQL job failed with "Code scanning is not enabled for this
+      repository". The analysis had completed; only the upload was refused.
+    severity: low
+    likelihood: high
+    impact: low
+    risk: low
+    remediation: >-
+      Enable code scanning on the repository, then set upload: true on the
+      analyze step and restore security-events: write. Until then the SARIF is
+      retained as a build artifact and scripts/sarif_gate.py fails the build on
+      findings at or above high, so nothing ships unreviewed — the gap is in
+      visibility and history, not in enforcement.
+    milestones:
+      - { date: '2026-10-11', description: Decide on Advanced Security; enable code scanning or record the decision not to }
+    owner: UNASSIGNED
+    status: open
+    scheduled_completion: '2026-10-11'
