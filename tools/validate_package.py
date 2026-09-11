@@ -282,8 +282,11 @@ def main() -> int:
 
     # Every recorded weakness should be visible from the control it weakens.
     cited_anywhere = {p for c in (sctm.get("controls") or []) for p in (c.get("poam") or [])}
-    for orphan in sorted(poam_ids - cited_anywhere):
-        report.warn(f"{orphan}: not referenced by any control in the matrix")
+    open_ids = {
+        item.get("id") for item in (poam.get("items") or []) if item.get("status") == "open"
+    }
+    for orphan in sorted(open_ids - cited_anywhere):
+        report.warn(f"{orphan}: open, but not referenced by any control in the matrix")
 
     controls = sctm.get("controls") or []
     print(f"Package  : {sctm.get('system', {}).get('name', '?')} ({sctm.get('system', {}).get('identifier', '?')})")

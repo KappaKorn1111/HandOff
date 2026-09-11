@@ -216,17 +216,14 @@ controls:
       npm ci, which fails if the lockfile and manifests disagree. The container
       base image is pinned by digest as well as tag, because a tag can be moved
       to different content.
-    limitation: >-
-      The baseline is declared but has never been built: no container image has
-      been produced from this Dockerfile, so the declared baseline and the
-      real artifact have not been compared.
     evidence:
       - path: package-lock.json
         note: Committed lockfile; npm ci is used in both build stages.
       - path: apps/api/Dockerfile
         note: NODE_IMAGE pinned by sha256 digest.
+      - path: .github/workflows/security.yml
+        note: Builds the image and scans it on every change; POAM-010 closed on this evidence.
     automated_checks: [CM-02, CM-07]
-    poam: [POAM-010]
 
   - id: CM-6
     title: Configuration Settings

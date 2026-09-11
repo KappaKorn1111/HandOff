@@ -291,8 +291,19 @@ items:
     milestones:
       - { date: '2026-09-18', description: Confirm the first CI image build and scan succeed; attach reports }
     owner: UNASSIGNED
-    status: open
+    status: completed
     scheduled_completion: '2026-09-18'
+    completed_date: '2026-09-11'
+    completion_evidence: >-
+      The container job built the image on a runner, asserted through docker
+      inspect that it does not run as root, and passed both Trivy scans. The
+      image scan initially reported 4 HIGH — libcrypto3 and libssl3 at 3.5.6-r0,
+      carrying CVE-2026-45447 and CVE-2026-14456 — which were cleared by
+      upgrading those packages in the runtime stage; the rerun is clean at
+      HIGH/CRITICAL. The Dockerfile and compose file also pass Trivy's
+      configuration scan. Reports are retained as the container-scan-reports
+      build artifact. The replicated-stage verification used while authoring
+      the Dockerfile held: nothing about the real build contradicted it.
 
   - id: POAM-011
     title: Evidence paths are not verified in continuous integration

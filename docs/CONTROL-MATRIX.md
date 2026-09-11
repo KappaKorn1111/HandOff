@@ -150,7 +150,7 @@ Security gates run on every pull request and on a weekly schedule, so advisories
 
 | Control | Title | Status | Owner | Automated checks | POA&M |
 |---|---|---|---|---|---|
-| `CM-2` | Baseline Configuration | Implemented | system | CM-02, CM-07 | POAM-010 |
+| `CM-2` | Baseline Configuration | Implemented | system | CM-02, CM-07 | — |
 | `CM-6` | Configuration Settings | Implemented | system | CM-04, AC-02 | — |
 | `CM-7` | Least Functionality | Implemented | system | CM-03, CM-05 | — |
 
@@ -160,12 +160,11 @@ Security gates run on every pull request and on a weekly schedule, so advisories
 
 The dependency tree is fixed by a committed lockfile and installed with npm ci, which fails if the lockfile and manifests disagree. The container base image is pinned by digest as well as tag, because a tag can be moved to different content.
 
-> **Limitation.** The baseline is declared but has never been built: no container image has been produced from this Dockerfile, so the declared baseline and the real artifact have not been compared.
-
 **Evidence**
 
 - `evergreen:package-lock.json` — Committed lockfile; npm ci is used in both build stages.
 - `evergreen:apps/api/Dockerfile` — NODE_IMAGE pinned by sha256 digest.
+- `evergreen:.github/workflows/security.yml` — Builds the image and scans it on every change; POAM-010 closed on this evidence.
 
 ### CM-6 — Configuration Settings
 
